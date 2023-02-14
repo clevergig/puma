@@ -452,6 +452,8 @@ module Puma
         env[REMOTE_ADDR] = addr
       end
 
+      env['HTTP_APP_VERSION'] = env[HTTP_VERSION]
+
       # The legacy HTTP_VERSION header can be sent as a client header.
       # Rack v4 may remove using HTTP_VERSION.  If so, remove this line.
       env[HTTP_VERSION] = env[SERVER_PROTOCOL]
