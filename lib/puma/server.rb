@@ -51,7 +51,7 @@ module Puma
     def_delegators :@binder, :add_tcp_listener, :add_ssl_listener,
       :add_unix_listener, :connected_ports
 
-    ThreadLocalKey = :puma_server
+    THREAD_LOCAL_KEY = :puma_server
 
     # Create a server for the rack app +app+.
     #
@@ -97,6 +97,18 @@ module Puma
       @io_selector_backend = @options[:io_selector_backend]
       @http_content_length_limit = @options[:http_content_length_limit]
 
+      # make this a hash, since we prefer `key?` over `include?`
+      @supported_http_methods =
+        if @options[:supported_http_methods] == :any
+          :any
+        else
+          if (ary = @options[:supported_http_methods])
+            ary
+          else
+            SUPPORTED_HTTP_METHODS
+          end.sort.product([nil]).to_h.freeze
+        end
+
       temp = !!(@options[:environment] =~ /\A(development|test)\z/)
       @leak_stack_on_error = @options[:environment] ? temp : true
 
@@ -118,7 +130,7 @@ module Puma
     class << self
       # @!attribute [r] current
       def current
-        Thread.current[ThreadLocalKey]
+        Thread.current[THREAD_LOCAL_KEY]
       end
 
       # :nodoc:
@@ -404,7 +416,7 @@ module Puma
     # Return true if one or more requests were processed.
     def process_client(client)
       # Advertise this server into the thread
-      Thread.current[ThreadLocalKey] = self
+      Thread.current[THREAD_LOCAL_KEY] = self
 
       clean_thread_locals = @options[:clean_thread_locals]
       close_socket = true
@@ -464,7 +476,7 @@ module Puma
         end
         true
       rescue StandardError => e
-        client_error(e, client)
+        client_error(e, client, requests)
         # The ensure tries to close +client+ down
         requests > 0
       ensure
@@ -492,22 +504,22 @@ module Puma
     # :nocov:
 
     # Handle various error types thrown by Client I/O operations.
-    def client_error(e, client)
+    def client_error(e, client, requests = 1)
       # Swallow, do not log
       return if [ConnectionError, EOFError].include?(e.class)
 
-      lowlevel_error(e, client.env)
       case e
       when MiniSSL::SSLError
+        lowlevel_error(e, client.env)
         @log_writer.ssl_error e, client.io
       when HttpParserError
-        client.write_error(400)
+        response_to_error(client, requests, e, 400)
         @log_writer.parse_error e, client
       when HttpParserError501
-        client.write_error(501)
+        response_to_error(client, requests, e, 501)
         @log_writer.parse_error e, client
       else
-        client.write_error(500)
+        response_to_error(client, requests, e, 500)
         @log_writer.unknown_error e, nil, "Read"
       end
     end
@@ -529,9 +541,16 @@ module Puma
         backtrace = e.backtrace.nil? ? '<no backtrace available>' : e.backtrace.join("\n")
         [status, {}, ["Puma caught this error: #{e.message} (#{e.class})\n#{backtrace}"]]
       else
-        [status, {}, ["An unhandled lowlevel error occurred. The application logs may have details.\n"]]
+        [status, {}, [""]]
       end
     end
+
+    def response_to_error(client, requests, err, status_code)
+      status, headers, res_body = lowlevel_error(err, client.env, status_code)
+      prepare_response(status, headers, res_body, requests, client)
+      client.write_error(status_code)
+    end
+    private :response_to_error
 
     # Wait for all outstanding requests to finish.
     #
@@ -566,7 +585,7 @@ module Puma
 
     def notify_safely(message)
       @notify << message
-    rescue IOError, NoMethodError, Errno::EPIPE
+    rescue IOError, NoMethodError, Errno::EPIPE, Errno::EBADF
       # The server, in another thread, is shutting down
       Puma::Util.purge_interrupt_queue
     rescue RuntimeError => e

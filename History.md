@@ -1,3 +1,26 @@
+## 6.3.0 / 2023-05-31
+
+* Features
+  * Add dsl method `supported_http_methods` ([#3106], [#3014])
+  * Puma error responses no longer have any fingerprints to indicate Puma ([#3161], [#3037])
+  * Support decryption of SSL key ([#3133], [#3132])
+
+* Bugfixes
+  * Don't send 103 early hints response when only invalid headers are used ([#3163])
+  * Handle malformed request path ([#3155], [#3148])
+  * Misc lib file fixes - trapping additional errors, CI helper ([#3129])
+  * Fixup req form data file upload with "r\n" line endings ([#3137])
+  * Restore rack 1.6 compatibility ([#3156])
+
+* Refactor
+  * const.rb - Update Puma::HTTP_STATUS_CODES ([#3162])
+  * Clarify Reactor#initialize ([#3151])
+
+## 6.2.2 / 2023-04-17
+
+* Bugfixes
+  * Fix Rack-related NameError by adding :: operator ([#3118], [#3117])
+
 ## 6.2.1 / 2023-03-31
 
 * Bugfixes
@@ -16,7 +39,6 @@
   * Loggers - internal_write - catch Errno::EINVAL ([#3091])
   * commonlogger.rb - fix HIJACK time format, use constants, not strings ([#3074])
   * Fixed some edge cases regarding request hijacking ([#3072])
-
 
 ## 6.1.1 / 2023-02-28
 
@@ -98,6 +120,11 @@
   * Refactor Launcher#run to increase readability (no logic change) ([#2795])
   * Ruby 3.2 will have native IO#wait_* methods, don't require io/wait ([#2903])
   * Various internal API refactorings ([#2942], [#2921], [#2922], [#2955])
+
+## 5.6.6 / 2023-06-21
+
+* Bugfix
+  * Prevent loading with rack 3 ([#3166])
 
 ## 5.6.5 / 2022-08-23
 
@@ -1974,6 +2001,22 @@ be added back in a future date when a java Puma::MiniSSL is added.
 * Bugfixes
   * Your bugfix goes here <Most recent on the top, like GitHub> (#Github Number)
 
+[#3106]:https://github.com/puma/puma/pull/3106     "PR by @MSP-Greg, merged 2023-05-29"
+[#3014]:https://github.com/puma/puma/issues/3014   "Issue by @kyledrake, closed 2023-05-29"
+[#3161]:https://github.com/puma/puma/pull/3161     "PR by @MSP-Greg, merged 2023-05-27"
+[#3037]:https://github.com/puma/puma/issues/3037   "Issue by @daisy1754, closed 2023-05-27"
+[#3133]:https://github.com/puma/puma/pull/3133     "PR by @stanhu, merged 2023-04-30"
+[#3132]:https://github.com/puma/puma/issues/3132   "Issue by @stanhu, closed 2023-04-30"
+[#3163]:https://github.com/puma/puma/pull/3163     "PR by @MSP-Greg, merged 2023-05-27"
+[#3155]:https://github.com/puma/puma/pull/3155     "PR by @dentarg, merged 2023-05-14"
+[#3148]:https://github.com/puma/puma/issues/3148   "Issue by @dentarg, closed 2023-05-14"
+[#3129]:https://github.com/puma/puma/pull/3129     "PR by @MSP-Greg, merged 2023-05-02"
+[#3137]:https://github.com/puma/puma/pull/3137     "PR by @MSP-Greg, merged 2023-04-30"
+[#3156]:https://github.com/puma/puma/pull/3156     "PR by @severin, merged 2023-05-16"
+[#3162]:https://github.com/puma/puma/pull/3162     "PR by @MSP-Greg, merged 2023-05-23"
+[#3151]:https://github.com/puma/puma/pull/3151     "PR by @nateberkopec, merged 2023-05-12"
+[#3118]:https://github.com/puma/puma/pull/3118     "PR by @ninoseki, merged 2023-04-01"
+[#3117]:https://github.com/puma/puma/issues/3117   "Issue by @ninoseki, closed 2023-04-01"
 [#3109]:https://github.com/puma/puma/pull/3109     "PR by @ahorek, merged 2023-03-31"
 [#3108]:https://github.com/puma/puma/issues/3108   "Issue by @treviateo, closed 2023-03-31"
 [#3113]:https://github.com/puma/puma/pull/3113     "PR by @collinsauve, merged 2023-03-31"
@@ -2056,6 +2099,7 @@ be added back in a future date when a java Puma::MiniSSL is added.
 [#2921]:https://github.com/puma/puma/issues/2921   "Issue by @MSP-Greg, closed 2022-09-15"
 [#2922]:https://github.com/puma/puma/issues/2922   "Issue by @MSP-Greg, closed 2022-09-10"
 [#2955]:https://github.com/puma/puma/pull/2955     "PR by @cafedomancer, merged 2022-09-15"
+[#3166]:https://github.com/puma/puma/issues/3166   "Issue by @JoeDupuis, merged 2023-06-08"
 [#2868]:https://github.com/puma/puma/pull/2868     "PR by @MSP-Greg, merged 2022-06-02"
 [#2866]:https://github.com/puma/puma/issues/2866   "Issue by @slondr, closed 2022-06-02"
 [#2883]:https://github.com/puma/puma/pull/2883     "PR by @MSP-Greg, merged 2022-06-02"
@@ -2082,7 +2126,7 @@ be added back in a future date when a java Puma::MiniSSL is added.
 [#2794]:https://github.com/puma/puma/pull/2794     "PR by @johnnyshields, merged 2022-01-10"
 [#2759]:https://github.com/puma/puma/pull/2759     "PR by @ob-stripe, merged 2021-12-11"
 [#2731]:https://github.com/puma/puma/pull/2731     "PR by @baelter, merged 2021-11-02"
-[#2341]:https://github.com/puma/puma/issues/2341   "Issue by @cjlarose, closed 2021-11-02"
+[#2341]:https://github.com/puma/puma/issues/2341   "Issue by @cjlarose, opened 2020-08-18"
 [#2728]:https://github.com/puma/puma/pull/2728     "PR by @dalibor, merged 2021-10-31"
 [#2733]:https://github.com/puma/puma/pull/2733     "PR by @ob-stripe, merged 2021-12-12"
 [#2807]:https://github.com/puma/puma/pull/2807     "PR by @MSP-Greg, merged 2022-01-25"

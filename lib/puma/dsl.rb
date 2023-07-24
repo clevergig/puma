@@ -89,6 +89,7 @@ module Puma
 
         cert_flags = (cert = opts[:cert]) ? "cert=#{Puma::Util.escape(cert)}" : nil
         key_flags = (key = opts[:key]) ? "&key=#{Puma::Util.escape(key)}" : nil
+        password_flags = (password_command = opts[:key_password_command]) ? "&key_password_command=#{Puma::Util.escape(password_command)}" : nil
 
         reuse_flag =
           if (reuse = opts[:reuse])
@@ -114,7 +115,7 @@ module Puma
             nil
           end
 
-        "ssl://#{host}:#{port}?#{cert_flags}#{key_flags}#{ssl_cipher_filter}" \
+        "ssl://#{host}:#{port}?#{cert_flags}#{key_flags}#{password_flags}#{ssl_cipher_filter}" \
           "#{reuse_flag}&verify_mode=#{verify}#{tls_str}#{ca_additions}#{v_flags}#{backlog_str}#{low_latency_str}"
       end
     end
@@ -509,6 +510,12 @@ module Puma
     # `true`, which sets reuse 'on' with default values, or a hash, with `:size`
     # and/or `:timeout` keys, each with integer values.
     #
+    # The `cert:` options hash parameter can be the path to a certificate
+    # file including all intermediate certificates in PEM format.
+    #
+    # The `cert_pem:` options hash parameter can be String containing the
+    # cerificate and all intermediate certificates in PEM format.
+    #
     # @example
     #   ssl_bind '127.0.0.1', '9292', {
     #     cert: path_to_cert,
@@ -714,6 +721,23 @@ module Puma
     #
     def on_refork(key = nil, &block)
       process_hook :before_refork, key, block, 'on_refork'
+    end
+
+    # Code to run immediately before a thread exits. The worker does not
+    # accept new requests until this code finishes.
+    #
+    # This hook is useful for cleaning up thread local resources when a thread
+    # is trimmed.
+    #
+    # This can be called multiple times to add several hooks.
+    #
+    # @example
+    #   on_thread_exit do
+    #     puts 'On thread exit...'
+    #   end
+    def on_thread_exit(&block)
+      @options[:before_thread_exit] ||= []
+      @options[:before_thread_exit] << block
     end
 
     # Code to run out-of-band when the worker is idle.
@@ -1064,6 +1088,38 @@ module Puma
     # The default value for http_content_length_limit is nil.
     def http_content_length_limit(limit)
       @options[:http_content_length_limit] = limit
+    end
+
+    # Supported http methods, which will replace `Puma::Const::SUPPORTED_HTTP_METHODS`.
+    # The value of `:any` will allows all methods, otherwise, the value must be
+    # an array of strings.  Note that methods are all uppercase.
+    #
+    # `Puma::Const::SUPPORTED_HTTP_METHODS` is conservative, if you want a
+    # complete set of methods, the methods defined by the
+    # [IANA Method Registry](https://www.iana.org/assignments/http-methods/http-methods.xhtml)
+    # are pre-defined as the constant `Puma::Const::IANA_HTTP_METHODS`.
+    #
+    # @note If the `methods` value is `:any`, no method check with be performed,
+    #   similar to Puma v5 and earlier.
+    #
+    # @example Adds 'PROPFIND' to existing supported methods
+    #   supported_http_methods(Puma::Const::SUPPORTED_HTTP_METHODS + ['PROPFIND'])
+    # @example Restricts methods to the array elements
+    #   supported_http_methods %w[HEAD GET POST PUT DELETE OPTIONS PROPFIND]
+    # @example Restricts methods to the methods in the IANA Registry
+    #   supported_http_methods Puma::Const::IANA_HTTP_METHODS
+    # @example Allows any method
+    #   supported_http_methods :any
+    #
+    def supported_http_methods(methods)
+      if methods == :any
+        @options[:supported_http_methods] = :any
+      elsif Array === methods && methods == (ary = methods.grep(String).uniq) &&
+        !ary.empty?
+        @options[:supported_http_methods] = ary
+      else
+        raise "supported_http_methods must be ':any' or a unique array of strings"
+      end
     end
 
     private

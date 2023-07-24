@@ -35,7 +35,7 @@ class TestThreadPool < Minitest::Test
       work = [work] unless work.is_a?(Array)
       with_mutex do
         work.each {|arg| super arg}
-        yield if block_given?
+        yield if block
         @not_full.wait(@mutex)
       end
     end
@@ -165,6 +165,29 @@ class TestThreadPool < Minitest::Test
 
     assert_equal 2, pool.spawned
     assert_equal 0, pool.trim_requested
+  end
+
+  def test_trim_thread_exit_hook
+    exited = Queue.new
+    options = {
+      min_threads: 0,
+      max_threads: 1,
+      before_thread_exit: [
+        proc do
+          exited << 1
+        end
+      ]
+    }
+    block = proc { }
+    pool = MutexPool.new('tst', options, &block)
+
+    pool << 1
+
+    assert_equal 1, pool.spawned
+
+    pool.trim
+    assert_equal 0, pool.spawned
+    assert_equal 1, exited.length
   end
 
   def test_autotrim

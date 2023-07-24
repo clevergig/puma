@@ -13,6 +13,8 @@ end
 class TestPumaServer < Minitest::Test
   parallelize_me!
 
+  STATUS_CODES = ::Puma::HTTP_STATUS_CODES
+
   def setup
     @host = "127.0.0.1"
 
@@ -84,7 +86,6 @@ class TestPumaServer < Minitest::Test
       conn << ("PROXY #{family} #{remote_ip} #{target} 10000 80\r\n" + req)
     end
   end
-
 
   def new_connection
     TCPSocket.new(@host, @port).tap {|sock| @ios << sock}
@@ -327,16 +328,15 @@ class TestPumaServer < Minitest::Test
 
     data = send_http_and_read "HEAD / HTTP/1.0\r\n\r\n"
 
-    expected_data = (<<EOF
-HTTP/1.1 103 Early Hints
-Link: </style.css>; rel=preload; as=style
-Link: </script.js>; rel=preload
+    expected_data = <<~EOF.gsub("\n", "\r\n") + "\r\n"
+      HTTP/1.1 103 Early Hints
+      Link: </style.css>; rel=preload; as=style
+      Link: </script.js>; rel=preload
 
-HTTP/1.0 200 OK
-X-Hello: World
-Content-Length: 12
-EOF
-).split("\n").join("\r\n") + "\r\n\r\n"
+      HTTP/1.0 200 OK
+      X-Hello: World
+      Content-Length: 12
+    EOF
 
     assert_equal true, @server.early_hints
     assert_equal expected_data, data
@@ -371,12 +371,11 @@ EOF
 
     data = send_http_and_read "HEAD / HTTP/1.0\r\n\r\n"
 
-    expected_data = (<<EOF
-HTTP/1.0 200 OK
-X-Hello: World
-Content-Length: 12
-EOF
-).split("\n").join("\r\n") + "\r\n\r\n"
+    expected_data = <<~EOF.gsub("\n", "\r\n") + "\r\n"
+      HTTP/1.0 200 OK
+      X-Hello: World
+      Content-Length: 12
+    EOF
 
     assert_nil @server.early_hints
     assert_equal expected_data, data
@@ -390,7 +389,8 @@ EOF
 
     data = sock.gets
 
-    assert_equal "HTTP/1.1 413 Payload Too Large\r\n", data
+    # Content Too Large
+    assert_equal "HTTP/1.1 413 #{STATUS_CODES[413]}\r\n", data
   end
 
   def test_http_11_keep_alive_with_large_payload
@@ -400,7 +400,8 @@ EOF
     sock << "hello world foo bar"
     h = header sock
 
-    assert_equal ["HTTP/1.1 413 Payload Too Large", "Content-Length: 17"], h
+    # Content Too Large
+    assert_equal ["HTTP/1.1 413 #{STATUS_CODES[413]}", "Content-Length: 17"], h
 
   end
 
@@ -481,7 +482,8 @@ EOF
 
     data = send_http_and_sysread "GET / HTTP/1.0\r\n\r\n"
 
-    assert_includes data, 'HTTP/1.0 500 Internal Server Error'
+    # Internal Server Error
+    assert_includes data, "HTTP/1.0 500 #{STATUS_CODES[500]}"
     assert_match(/Puma caught this error: Oh no an error.*\(NoMethodError\).*test\/test_puma_server.rb/m, data)
   end
 
@@ -491,7 +493,8 @@ EOF
     end
 
     data = send_http_and_sysread "GET / HTTP/1.1\r\n\r\n"
-    assert_includes data, 'HTTP/1.1 500 Internal Server Error'
+    # Internal Server Error
+    assert_includes data, "HTTP/1.1 500 #{STATUS_CODES[500]}"
     assert_includes data, 'Puma caught this error: no backtrace error (WithoutBacktraceError)'
     assert_includes data, '<no backtrace available>'
   end
@@ -594,7 +597,8 @@ EOF
 
     data = sock.gets
 
-    assert_equal "HTTP/1.1 408 Request Timeout\r\n", data
+    # Request Timeout
+    assert_equal "HTTP/1.1 408 #{STATUS_CODES[408]}\r\n", data
   end
 
   def test_timeout_data_no_queue
@@ -655,7 +659,8 @@ EOF
 
     h = header sock
 
-    assert_equal ["HTTP/1.1 204 No Content"], h
+    # No Content
+    assert_equal ["HTTP/1.1 204 #{STATUS_CODES[204]}"], h
   end
 
   def test_http_11_close_without_body
@@ -665,7 +670,8 @@ EOF
 
     h = header sock
 
-    assert_equal ["HTTP/1.1 204 No Content", "Connection: close"], h
+    # No Content
+    assert_equal ["HTTP/1.1 204 #{STATUS_CODES[204]}", "Connection: close"], h
   end
 
   def test_http_10_keep_alive_with_body
@@ -1550,20 +1556,158 @@ EOF
     server_run { |env| [404, {'Content-Length' => '0'}, []] }
 
     resp = send_http_and_sysread "GET / HTTP/1.1\r\n\r\n"
-    assert_equal "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n", resp
+    # Not Found
+    assert_equal "HTTP/1.1 404 #{STATUS_CODES[404]}\r\nContent-Length: 0\r\n\r\n", resp
   end
 
   def test_empty_body_array_no_content_length
     server_run { |env| [404, {}, []] }
 
     resp = send_http_and_sysread "GET / HTTP/1.1\r\n\r\n"
-    assert_equal "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n", resp
+    # Not Found
+    assert_equal "HTTP/1.1 404 #{STATUS_CODES[404]}\r\nContent-Length: 0\r\n\r\n", resp
   end
 
   def test_empty_body_enum
     server_run { |env| [404, {}, [].to_enum] }
 
     resp = send_http_and_sysread "GET / HTTP/1.1\r\n\r\n"
-    assert_equal "HTTP/1.1 404 Not Found\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", resp
+    # Not Found
+    assert_equal "HTTP/1.1 404 #{STATUS_CODES[404]}\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", resp
+  end
+
+  def test_form_data_encoding_windows_bom
+    req_body = nil
+
+    str = "──── Hello,World,From,Puma ────\r\n"
+
+    file_contents = str * 5_500 # req body is > 256 kB
+
+    file_bytesize = file_contents.bytesize + 3 # 3 = BOM byte size
+
+    fio = Tempfile.create 'win_bom_utf8_'
+
+    temp_file_path = fio.path
+    fio.close
+
+    File.open temp_file_path, "wb:UTF-8" do |f|
+      f.write "\xEF\xBB\xBF#{file_contents}"
+    end
+
+    server_run do |env|
+      req_body = env['rack.input'].read
+      [200, {}, [req_body]]
+    end
+
+    cmd = "curl -H 'transfer-encoding: chunked' --form data=@#{temp_file_path} http://127.0.0.1:#{@port}/"
+
+    out_r, _, _ = spawn_cmd cmd
+
+    out_r.wait_readable 3
+
+    form_file_data = req_body.split("\r\n\r\n", 2)[1].sub(/\r\n----\S+\r\n\z/, '')
+
+    assert_equal file_bytesize, form_file_data.bytesize
+    assert_equal out_r.read.bytesize, req_body.bytesize
+  end
+
+  def test_form_data_encoding_windows
+    req_body = nil
+
+    str = "──── Hello,World,From,Puma ────\r\n"
+
+    file_contents = str * 5_500 # req body is > 256 kB
+
+    file_bytesize = file_contents.bytesize
+
+    fio = tempfile_create 'win_utf8_', file_contents
+
+    temp_file_path = fio.path
+    fio.close
+
+    server_run do |env|
+      req_body = env['rack.input'].read
+      [200, {}, [req_body]]
+    end
+
+    cmd = "curl -H 'transfer-encoding: chunked' --form data=@#{temp_file_path} http://127.0.0.1:#{@port}/"
+
+    out_r, _, _ = spawn_cmd cmd
+
+    out_r.wait_readable 3
+
+    form_file_data = req_body.split("\r\n\r\n", 2)[1].sub(/\r\n----\S+\r\n\z/, '')
+
+    assert_equal file_bytesize, form_file_data.bytesize
+    assert_equal out_r.read.bytesize, req_body.bytesize
+  end
+
+  def test_supported_http_methods_match
+    server_run(supported_http_methods: ['PROPFIND', 'PROPPATCH']) do |env|
+      body = [env['REQUEST_METHOD']]
+      [200, {}, body]
+    end
+    resp = send_http_and_read "PROPFIND / HTTP/1.0\r\n\r\n"
+    assert_match 'PROPFIND', resp
+  end
+
+  def test_supported_http_methods_no_match
+    server_run(supported_http_methods: ['PROPFIND', 'PROPPATCH']) do |env|
+      body = [env['REQUEST_METHOD']]
+      [200, {}, body]
+    end
+    resp = send_http_and_read "GET / HTTP/1.0\r\n\r\n"
+    assert_match 'Not Implemented', resp
+  end
+
+  def test_supported_http_methods_accept_all
+    server_run(supported_http_methods: :any) do |env|
+      body = [env['REQUEST_METHOD']]
+      [200, {}, body]
+    end
+    resp = send_http_and_read "YOUR_SPECIAL_METHOD / HTTP/1.0\r\n\r\n"
+    assert_match 'YOUR_SPECIAL_METHOD', resp
+  end
+
+  def test_supported_http_methods_empty
+    server_run(supported_http_methods: []) do |env|
+      body = [env['REQUEST_METHOD']]
+      [200, {}, body]
+    end
+    resp = send_http_and_read "GET / HTTP/1.0\r\n\r\n"
+    assert_match(/\AHTTP\/1\.0 501 Not Implemented/, resp)
+  end
+
+
+  def spawn_cmd(env = {}, cmd)
+    opts = {}
+
+    out_r, out_w = IO.pipe
+    opts[:out] = out_w
+
+    err_r, err_w = IO.pipe
+    opts[:err] = err_w
+
+    out_r.binmode
+    err_r.binmode
+
+    pid = spawn(env, cmd, opts)
+    [out_w, err_w].each(&:close)
+    [out_r, err_r, pid]
+  end
+
+  def test_lowlevel_error_handler_response
+    options = {
+      lowlevel_error_handler: ->(_error) do
+        [500, {}, ["something wrong happened"]]
+      end
+    }
+    broken_app = ->(_env) { [200, nil, []] }
+
+    server_run(**options, &broken_app)
+
+    data = send_http_and_read "GET / HTTP/1.1\r\n\r\n"
+
+    assert_match(/something wrong happened/, data)
   end
 end

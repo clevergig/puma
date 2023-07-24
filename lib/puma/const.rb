@@ -18,6 +18,7 @@ module Puma
     100 => 'Continue',
     101 => 'Switching Protocols',
     102 => 'Processing',
+    103 => 'Early Hints',
     200 => 'OK',
     201 => 'Created',
     202 => 'Accepted',
@@ -49,16 +50,16 @@ module Puma
     410 => 'Gone',
     411 => 'Length Required',
     412 => 'Precondition Failed',
-    413 => 'Payload Too Large',
+    413 => 'Content Too Large',
     414 => 'URI Too Long',
     415 => 'Unsupported Media Type',
     416 => 'Range Not Satisfiable',
     417 => 'Expectation Failed',
-    418 => 'I\'m A Teapot',
     421 => 'Misdirected Request',
-    422 => 'Unprocessable Entity',
+    422 => 'Unprocessable Content',
     423 => 'Locked',
     424 => 'Failed Dependency',
+    425 => 'Too Early',
     426 => 'Upgrade Required',
     428 => 'Precondition Required',
     429 => 'Too Many Requests',
@@ -73,7 +74,7 @@ module Puma
     506 => 'Variant Also Negotiates',
     507 => 'Insufficient Storage',
     508 => 'Loop Detected',
-    510 => 'Not Extended',
+    510 => 'Not Extended (OBSOLETED)',
     511 => 'Network Authentication Required'
   }.freeze
 
@@ -99,8 +100,8 @@ module Puma
   # too taxing on performance.
   module Const
 
-    PUMA_VERSION = VERSION = "6.2.1"
-    CODE_NAME = "Speaking of Now"
+    PUMA_VERSION = VERSION = "6.3.0"
+    CODE_NAME = "Mugi No Toki Itaru"
 
     PUMA_SERVER_STRING = ["puma", PUMA_VERSION, CODE_NAME].join(" ").freeze
 
@@ -124,15 +125,15 @@ module Puma
       # Indicate that we couldn't parse the request
       400 => "HTTP/1.1 400 Bad Request\r\n\r\n",
       # The standard empty 404 response for bad requests.  Use Error4040Handler for custom stuff.
-      404 => "HTTP/1.1 404 Not Found\r\nConnection: close\r\nServer: Puma #{PUMA_VERSION}\r\n\r\nNOT FOUND",
+      404 => "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n",
       # The standard empty 408 response for requests that timed out.
-      408 => "HTTP/1.1 408 Request Timeout\r\nConnection: close\r\nServer: Puma #{PUMA_VERSION}\r\n\r\n",
+      408 => "HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n",
       # Indicate that there was an internal error, obviously.
       500 => "HTTP/1.1 500 Internal Server Error\r\n\r\n",
       # Incorrect or invalid header value
       501 => "HTTP/1.1 501 Not Implemented\r\n\r\n",
       # A common header for indicating the server is too busy.  Not used yet.
-      503 => "HTTP/1.1 503 Service Unavailable\r\n\r\nBUSY"
+      503 => "HTTP/1.1 503 Service Unavailable\r\n\r\n"
     }.freeze
 
     # The basic max request size we'll try to read.
@@ -147,7 +148,55 @@ module Puma
 
     REQUEST_METHOD = "REQUEST_METHOD"
     HEAD = "HEAD"
+
+    # based on https://www.rfc-editor.org/rfc/rfc9110.html#name-overview,
+    # with CONNECT removed, and PATCH added
     SUPPORTED_HTTP_METHODS = %w[HEAD GET POST PUT DELETE OPTIONS TRACE PATCH].freeze
+
+    # list from https://www.iana.org/assignments/http-methods/http-methods.xhtml
+    # as of 04-May-23
+    IANA_HTTP_METHODS = %w[
+      ACL
+      BASELINE-CONTROL
+      BIND
+      CHECKIN
+      CHECKOUT
+      CONNECT
+      COPY
+      DELETE
+      GET
+      HEAD
+      LABEL
+      LINK
+      LOCK
+      MERGE
+      MKACTIVITY
+      MKCALENDAR
+      MKCOL
+      MKREDIRECTREF
+      MKWORKSPACE
+      MOVE
+      OPTIONS
+      ORDERPATCH
+      PATCH
+      POST
+      PRI
+      PROPFIND
+      PROPPATCH
+      PUT
+      REBIND
+      REPORT
+      SEARCH
+      TRACE
+      UNBIND
+      UNCHECKOUT
+      UNLINK
+      UNLOCK
+      UPDATE
+      UPDATEREDIRECTREF
+      VERSION-CONTROL
+    ].freeze
+
     # ETag is based on the apache standard of hex mtime-size-inode (inode is 0 on win32)
     LINE_END = "\r\n"
     REMOTE_ADDR = "REMOTE_ADDR"

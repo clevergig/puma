@@ -69,8 +69,8 @@ def hit(uris)
 end
 
 module UniquePort
-  def self.call
-    TCPServer.open('127.0.0.1', 0) do |server|
+  def self.call(host = '127.0.0.1')
+    TCPServer.open(host, 0) do |server|
       server.connect_address.ip_port
     end
   end
@@ -182,7 +182,7 @@ module TestSkips
         when :fork        then "Skipped if Kernel.fork exists"   if HAS_FORK
         when :unix        then "Skipped if UNIXSocket exists"    if Puma::HAS_UNIX_SOCKET
         when :aunix       then "Skipped if abstract UNIXSocket"  if Puma.abstract_unix_socket?
-        when :rack3       then "Skipped if Rack 3.x"             if Rack::RELEASE >= '3'
+        when :rack3       then "Skipped if Rack 3.x"             if Rack.release >= '3'
         else false
       end
       skip skip_msg, bt if skip_msg
@@ -201,7 +201,7 @@ module TestSkips
       when :fork    then MSG_FORK                       unless HAS_FORK
       when :unix    then MSG_UNIX                       unless Puma::HAS_UNIX_SOCKET
       when :aunix   then MSG_AUNIX                      unless Puma.abstract_unix_socket?
-      when :rack3   then "Skipped unless Rack >= 3.x"   unless ::Rack::RELEASE >= '3'
+      when :rack3   then "Skipped unless Rack >= 3.x"   unless ::Rack.release >= '3'
       else false
     end
     skip skip_msg, bt if skip_msg
@@ -244,13 +244,18 @@ end
 
 module AggregatedResults
   def aggregated_results(io)
+    is_github_actions = ENV['GITHUB_ACTIONS'] == 'true'
     filtered_results = results.dup
 
     if options[:verbose]
       skips = filtered_results.select(&:skipped?)
       unless skips.empty?
         dash = "\u2500"
-        io.puts '', "Skips:"
+        if is_github_actions
+          puts "", "##[group]Skips:"
+        else
+          io.puts '', 'Skips:'
+        end
         hsh = skips.group_by { |f| f.failures.first.error.message }
         hsh_s = {}
         hsh.each { |k, ary|
@@ -272,6 +277,7 @@ module AggregatedResults
             puts ''
           }
         }
+        puts '::[endgroup]' if is_github_actions
       end
     end
 

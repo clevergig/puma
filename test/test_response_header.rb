@@ -49,7 +49,7 @@ class TestResponseHeader < Minitest::Test
     server_run app: ->(env) { [200, { 1 => 'Boo'}, []] }
     data = send_http_and_read "GET / HTTP/1.0\r\n\r\n"
 
-    assert_match(/HTTP\/1.1 500 Internal Server Error/, data)
+    assert_match(/Puma caught this error/, data)
   end
 
   # The header must respond to each
@@ -57,7 +57,7 @@ class TestResponseHeader < Minitest::Test
     server_run app: ->(env) { [200, nil, []] }
     data = send_http_and_read "GET / HTTP/1.0\r\n\r\n"
 
-    assert_match(/HTTP\/1.1 500 Internal Server Error/, data)
+    assert_match(/Puma caught this error/, data)
   end
 
   # The values of the header must be Strings
@@ -83,7 +83,11 @@ class TestResponseHeader < Minitest::Test
     server_run(app: app, early_hints: opts[:early_hints])
     data = send_http_and_read "GET / HTTP/1.0\r\n\r\n"
 
-    refute_match("#{name}: #{value}", data)
+    if opts[:early_hints]
+      refute_includes data, "HTTP/1.1 103 Early Hints"
+    end
+
+    refute_includes data, "#{name}: #{value}"
   end
 
   # The header must not contain a Status key.

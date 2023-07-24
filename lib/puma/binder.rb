@@ -48,7 +48,6 @@ module Puma
 
       @envs = {}
       @ios = []
-      localhost_authority
     end
 
     attr_reader :ios
@@ -331,7 +330,7 @@ module Puma
         return
       end
 
-      host = host[1..-2] if host and host[0..0] == '['
+      host = host[1..-2] if host&.start_with? '['
       tcp_server = TCPServer.new(host, port)
 
       if optimize_for_latency
@@ -365,7 +364,7 @@ module Puma
         return
       end
 
-      host = host[1..-2] if host[0..0] == '['
+      host = host[1..-2] if host&.start_with? '['
       s = TCPServer.new(host, port)
       if optimize_for_latency
         s.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
@@ -451,11 +450,14 @@ module Puma
 
     def close_listeners
       @listeners.each do |l, io|
-        io.close unless io.closed?
-        uri = URI.parse l
-        next unless uri.scheme == 'unix'
-        unix_path = "#{uri.host}#{uri.path}"
-        File.unlink unix_path if @unix_paths.include?(unix_path) && File.exist?(unix_path)
+        begin
+          io.close unless io.closed?
+          uri = URI.parse l
+          next unless uri.scheme == 'unix'
+          unix_path = "#{uri.host}#{uri.path}"
+          File.unlink unix_path if @unix_paths.include?(unix_path) && File.exist?(unix_path)
+        rescue Errno::EBADF
+        end
       end
     end
 

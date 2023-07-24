@@ -44,9 +44,14 @@ module Puma
       @name = name
       @min = Integer(options[:min_threads])
       @max = Integer(options[:max_threads])
+      # Not an 'exposed' option, options[:pool_shutdown_grace_time] is used in CI
+      # to shorten @shutdown_grace_time from SHUTDOWN_GRACE_TIME. Parallel CI
+      # makes stubbing constants difficult.
+      @shutdown_grace_time = Float(options[:pool_shutdown_grace_time] || SHUTDOWN_GRACE_TIME)
       @block = block
       @out_of_band = options[:out_of_band]
       @clean_thread_locals = options[:clean_thread_locals]
+      @before_thread_exit = options[:before_thread_exit]
       @reaping_time = options[:reaping_time]
       @auto_trim_time = options[:auto_trim_time]
 
@@ -121,6 +126,7 @@ module Puma
                 @spawned -= 1
                 @workers.delete th
                 not_full.signal
+                trigger_before_thread_exit_hooks
                 Thread.exit
               end
 
@@ -157,6 +163,21 @@ module Puma
     end
 
     private :spawn_thread
+
+    def trigger_before_thread_exit_hooks
+      return unless @before_thread_exit&.any?
+
+      @before_thread_exit.each do |b|
+        begin
+          b.call
+        rescue Exception => e
+          STDERR.puts "WARNING before_thread_exit hook failed with exception (#{e.class}) #{e.message}"
+        end
+      end
+      nil
+    end
+
+    private :trigger_before_thread_exit_hooks
 
     # @version 5.0.0
     def trigger_out_of_band_hook
@@ -344,8 +365,8 @@ module Puma
 
     # Tell all threads in the pool to exit and wait for them to finish.
     # Wait +timeout+ seconds then raise +ForceShutdown+ in remaining threads.
-    # Next, wait an extra +grace+ seconds then force-kill remaining threads.
-    # Finally, wait +kill_grace+ seconds for remaining threads to exit.
+    # Next, wait an extra +@shutdown_grace_time+ seconds then force-kill remaining
+    # threads. Finally, wait 1 second for remaining threads to exit.
     #
     def shutdown(timeout=-1)
       threads = with_mutex do
@@ -382,7 +403,7 @@ module Puma
             t.raise ForceShutdown if t[:with_force_shutdown]
           end
         end
-        join.call(SHUTDOWN_GRACE_TIME)
+        join.call(@shutdown_grace_time)
 
         # If threads are _still_ running, forcefully kill them and wait to finish.
         threads.each(&:kill)

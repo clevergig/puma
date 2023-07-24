@@ -77,7 +77,9 @@ module Puma
       if @early_hints
         env[EARLY_HINTS] = lambda { |headers|
           begin
-            fast_write_str socket, str_early_hints(headers)
+            unless (str = str_early_hints headers).empty?
+              fast_write_str socket, "HTTP/1.1 103 Early Hints\r\n#{str}\r\n"
+            end
           rescue ConnectionError => e
             @log_writer.debug_error e
             # noop, if we lost the socket we just won't send the early hints
@@ -93,7 +95,7 @@ module Puma
       env[RACK_AFTER_REPLY] ||= []
 
       begin
-        if SUPPORTED_HTTP_METHODS.include?(env[REQUEST_METHOD])
+        if @supported_http_methods == :any || @supported_http_methods.key?(env[REQUEST_METHOD])
           status, headers, app_body = @thread_pool.with_force_shutdown do
             @app.call(env)
           end
@@ -418,7 +420,11 @@ module Puma
 
       unless env[REQUEST_PATH]
         # it might be a dumbass full host request header
-        uri = URI.parse(env[REQUEST_URI])
+        uri = begin
+          URI.parse(env[REQUEST_URI])
+        rescue URI::InvalidURIError
+          raise Puma::HttpParserError
+        end
         env[REQUEST_PATH] = uri.path
 
         # A nil env value will cause a LintError (and fatal errors elsewhere),
@@ -527,7 +533,7 @@ module Puma
     # @version 5.0.3
     #
     def str_early_hints(headers)
-      eh_str = +"HTTP/1.1 103 Early Hints\r\n"
+      eh_str = +""
       headers.each_pair do |k, vs|
         next if illegal_header_key?(k)
 
@@ -536,11 +542,11 @@ module Puma
             next if illegal_header_value?(v)
             eh_str << "#{k}: #{v}\r\n"
           end
-        else
+        elsif !(vs.to_s.empty? || !illegal_header_value?(vs))
           eh_str << "#{k}: #{vs}\r\n"
         end
       end
-      "#{eh_str}\r\n".freeze
+      eh_str.freeze
     end
     private :str_early_hints
 

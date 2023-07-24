@@ -17,7 +17,7 @@ class TestConfigFile < TestConfigFileBase
   end
 
   def test_app_from_rackup
-    if Rack::RELEASE >= '3'
+    if Rack.release >= '3'
       fn = "test/rackup/hello-bind_rack3.ru"
       bind = "tcp://0.0.0.0:9292"
     else
@@ -483,6 +483,10 @@ class TestConfigFile < TestConfigFileBase
     assert_warning_for_hooks_defined_in_single_mode :before_fork
   end
 
+  def test_run_hooks_before_thread_exit
+    assert_run_hooks :before_thread_exit, configured_with: :on_thread_exit
+  end
+
   def test_run_hooks_and_exception
     conf = Puma::Configuration.new do |c|
       c.on_restart do |a|
@@ -586,7 +590,7 @@ class TestConfigFile < TestConfigFileBase
 
   def assert_warning_for_hooks_defined_in_single_mode(hook_name)
     out, _ = capture_io do
-      conf = Puma::Configuration.new do |c|
+      Puma::Configuration.new do |c|
         c.send(hook_name)
       end
     end
