@@ -15,7 +15,6 @@ require_relative 'request'
 
 require 'socket'
 require 'io/wait' unless Puma::HAS_NATIVE_IO_WAIT
-require 'forwardable'
 
 module Puma
 
@@ -32,7 +31,6 @@ module Puma
   class Server
     include Puma::Const
     include Request
-    extend Forwardable
 
     attr_reader :thread
     attr_reader :log_writer
@@ -47,9 +45,6 @@ module Puma
 
     attr_accessor :app
     attr_accessor :binder
-
-    def_delegators :@binder, :add_tcp_listener, :add_ssl_listener,
-      :add_unix_listener, :connected_ports
 
     THREAD_LOCAL_KEY = :puma_server
 
@@ -86,15 +81,16 @@ module Puma
         UserFileDefaultOptions.new(options, Configuration::DEFAULTS)
       end
 
-      @log_writer          = @options.fetch :log_writer, LogWriter.stdio
-      @early_hints         = @options[:early_hints]
-      @first_data_timeout  = @options[:first_data_timeout]
-      @min_threads         = @options[:min_threads]
-      @max_threads         = @options[:max_threads]
-      @persistent_timeout  = @options[:persistent_timeout]
-      @queue_requests      = @options[:queue_requests]
-      @max_fast_inline     = @options[:max_fast_inline]
-      @io_selector_backend = @options[:io_selector_backend]
+      @log_writer                = @options.fetch :log_writer, LogWriter.stdio
+      @early_hints               = @options[:early_hints]
+      @first_data_timeout        = @options[:first_data_timeout]
+      @persistent_timeout        = @options[:persistent_timeout]
+      @idle_timeout              = @options[:idle_timeout]
+      @min_threads               = @options[:min_threads]
+      @max_threads               = @options[:max_threads]
+      @queue_requests            = @options[:queue_requests]
+      @max_fast_inline           = @options[:max_fast_inline]
+      @io_selector_backend       = @options[:io_selector_backend]
       @http_content_length_limit = @options[:http_content_length_limit]
 
       # make this a hash, since we prefer `key?` over `include?`
@@ -330,8 +326,12 @@ module Puma
 
         while @status == :run || (drain && shutting_down?)
           begin
-            ios = IO.select sockets, nil, nil, (shutting_down? ? 0 : nil)
-            break unless ios
+            ios = IO.select sockets, nil, nil, (shutting_down? ? 0 : @idle_timeout)
+            unless ios
+              @status = :stop unless shutting_down?
+              break
+            end
+
             ios.first.each do |sock|
               if sock == check
                 break if handle_check
@@ -629,6 +629,28 @@ module Puma
     # @!attribute [r] stats
     def stats
       STAT_METHODS.map {|name| [name, send(name) || 0]}.to_h
+    end
+
+    # below are 'delegations' to binder
+    # remove in Puma 7?
+
+
+    def add_tcp_listener(host, port, optimize_for_latency = true, backlog = 1024)
+      @binder.add_tcp_listener host, port, optimize_for_latency, backlog
+    end
+
+    def add_ssl_listener(host, port, ctx, optimize_for_latency = true,
+                         backlog = 1024)
+      @binder.add_ssl_listener host, port, ctx, optimize_for_latency, backlog
+    end
+
+    def add_unix_listener(path, umask = nil, mode = nil, backlog = 1024)
+      @binder.add_unix_listener path, umask, mode, backlog
+    end
+
+    # @!attribute [r] connected_ports
+    def connected_ports
+      @binder.connected_ports
     end
   end
 end

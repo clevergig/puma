@@ -315,16 +315,22 @@ module Puma
       bind URI::Generic.build(scheme: 'tcp', host: host, port: Integer(port)).to_s
     end
 
+    # Define how long the tcp socket stays open, if no data has been received.
+    # @see Puma::Server.new
+    def first_data_timeout(seconds)
+      @options[:first_data_timeout] = Integer(seconds)
+    end
+
     # Define how long persistent connections can be idle before Puma closes them.
     # @see Puma::Server.new
     def persistent_timeout(seconds)
       @options[:persistent_timeout] = Integer(seconds)
     end
 
-    # Define how long the tcp socket stays open, if no data has been received.
+    # If a new request is not received within this number of seconds, begin shutting down.
     # @see Puma::Server.new
-    def first_data_timeout(seconds)
-      @options[:first_data_timeout] = Integer(seconds)
+    def idle_timeout(seconds)
+      @options[:idle_timeout] = Integer(seconds)
     end
 
     # Work around leaky apps that leave garbage in Thread locals
@@ -723,6 +729,23 @@ module Puma
       process_hook :before_refork, key, block, 'on_refork'
     end
 
+    # Code to run immediately before a thread starts. The worker does not
+    # start new threads until this code finishes.
+    #
+    # This hook is useful for doing something when a thread
+    # starts.
+    #
+    # This can be called multiple times to add several hooks.
+    #
+    # @example
+    #   on_thread_start do
+    #     puts 'On thread start...'
+    #   end
+    def on_thread_start(&block)
+      @options[:before_thread_start] ||= []
+      @options[:before_thread_start] << block
+    end
+
     # Code to run immediately before a thread exits. The worker does not
     # accept new requests until this code finishes.
     #
@@ -871,7 +894,8 @@ module Puma
     # not a request timeout, it is to protect against a hung or dead process.
     # Setting this value will not protect against slow requests.
     #
-    # The minimum value is 6 seconds, the default value is 60 seconds.
+    # This value must be greater than worker_check_interval.
+    # The default value is 60 seconds.
     #
     # @note Cluster mode only.
     # @example
