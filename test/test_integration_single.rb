@@ -50,13 +50,12 @@ class TestIntegrationSingle < TestIntegration
   end
 
   def test_on_booted
-    cli_server "-C test/config/event_on_booted.rb -C test/config/event_on_booted_exit.rb test/rackup/hello.ru", no_wait: true
+    skip_unless_signal_exist? :TERM
 
-    output = []
+    cli_server "-C test/config/event_on_booted.rb -C test/config/event_on_booted_exit.rb test/rackup/hello.ru",
+      no_wait: true
 
-    output << $_ while @server.gets
-
-    assert output.any? { |msg| msg == "on_booted called\n" } != nil
+    assert wait_for_server_to_include('on_booted called')
   end
 
   def test_term_suppress
@@ -253,6 +252,18 @@ class TestIntegrationSingle < TestIntegration
     assert wait_for_server_to_include('Loaded Extensions:')
 
     cli_pumactl 'stop'
+  end
+
+  def test_idle_timeout
+    cli_server "test/rackup/hello.ru", config: "idle_timeout 1"
+
+    connect
+
+    sleep 1.15
+
+    assert_raises Errno::ECONNREFUSED, "Connection refused" do
+      connect
+    end
   end
 
   def test_pre_existing_unix_after_idle_timeout

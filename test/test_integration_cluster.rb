@@ -1,6 +1,8 @@
 require_relative "helper"
 require_relative "helpers/integration"
 
+require "puma/configuration"
+
 require "time"
 
 class TestIntegrationCluster < TestIntegration
@@ -116,6 +118,8 @@ class TestIntegrationCluster < TestIntegration
   end
 
   def test_term_exit_code
+    skip_unless_signal_exist? :TERM
+
     cli_server "-w #{workers} test/rackup/hello.ru"
     _, status = stop_server
 
@@ -123,6 +127,8 @@ class TestIntegrationCluster < TestIntegration
   end
 
   def test_term_suppress
+    skip_unless_signal_exist? :TERM
+
     cli_server "-w #{workers} -C test/config/suppress_exception.rb test/rackup/hello.ru"
 
     _, status = stop_server
@@ -131,16 +137,15 @@ class TestIntegrationCluster < TestIntegration
   end
 
   def test_on_booted
-    cli_server "-w #{workers} -C test/config/event_on_booted.rb -C test/config/event_on_booted_exit.rb test/rackup/hello.ru", no_wait: true
+    skip_unless_signal_exist? :TERM
+    cli_server "-w #{workers} -C test/config/event_on_booted.rb -C test/config/event_on_booted_exit.rb test/rackup/hello.ru",
+      no_wait: true
 
-    output = []
-
-    output << $_ while @server.gets
-
-    assert output.any? { |msg| msg == "on_booted called\n" } != nil
+    assert wait_for_server_to_include('on_booted called')
   end
 
   def test_term_worker_clean_exit
+    skip_unless_signal_exist? :TERM
     cli_server "-w #{workers} test/rackup/hello.ru"
 
     # Get the PIDs of the child workers.
@@ -199,13 +204,13 @@ class TestIntegrationCluster < TestIntegration
 
   def test_worker_boot_timeout
     timeout = 1
-    worker_timeout(timeout, 2, "worker failed to boot within \\\d+ seconds", "worker_boot_timeout #{timeout}; on_worker_boot { sleep #{timeout + 1} }")
+    worker_timeout(timeout, 2, "failed to boot within \\\d+ seconds", "worker_boot_timeout #{timeout}; on_worker_boot { sleep #{timeout + 1} }")
   end
 
   def test_worker_timeout
     skip 'Thread#name not available' unless Thread.current.respond_to?(:name)
     timeout = Puma::Configuration::DEFAULTS[:worker_check_interval] + 1
-    worker_timeout(timeout, 1, "worker failed to check in within \\\d+ seconds", <<~RUBY)
+    worker_timeout(timeout, 1, "failed to check in within \\\d+ seconds", <<~RUBY)
       worker_timeout #{timeout}
       on_worker_boot do
         Thread.new do
@@ -214,6 +219,23 @@ class TestIntegrationCluster < TestIntegration
         end
       end
     RUBY
+  end
+
+  def test_idle_timeout
+    cli_server "-w #{workers} test/rackup/hello.ru", config: "idle_timeout 1"
+
+    get_worker_pids # wait for workers to boot
+
+    10.times {
+      fast_connect
+      sleep 0.5
+    }
+
+    sleep 1.15
+
+    assert_raises Errno::ECONNREFUSED, "Connection refused" do
+      connect
+    end
   end
 
   def test_worker_index_is_with_in_options_limit
@@ -282,6 +304,30 @@ class TestIntegrationCluster < TestIntegration
     assert_equal '0', read_body(connect)
   end
 
+  def test_fork_worker_phased_restart_with_high_worker_count
+    worker_count = 10
+
+    cli_server "test/rackup/hello.ru", config: <<~RUBY
+      fork_worker 0
+      worker_check_interval 1
+      # lower worker timeout from default (60) to avoid test timeout
+      worker_timeout 2
+      # to simulate worker 0 timeout, total boot time for all workers
+      # needs to exceed single worker timeout
+      workers #{worker_count}
+    RUBY
+
+    # workers is the default
+    get_worker_pids 0, worker_count
+
+    Process.kill :USR1, @pid
+
+    get_worker_pids 1, worker_count
+
+    # below is so all of @server_log isn't output for failure
+    refute @server_log[/.*Terminating timed out worker.*/]
+  end
+
   def test_prune_bundler_with_multiple_workers
     cli_server "-C test/config/prune_bundler_with_multiple_workers.rb"
     reply = read_body(connect)
@@ -290,21 +336,25 @@ class TestIntegrationCluster < TestIntegration
   end
 
   def test_load_path_includes_extra_deps
-    cli_server "-w #{workers} -C test/config/prune_bundler_with_deps.rb test/rackup/hello.ru"
+    cli_server "-w #{workers} -C test/config/prune_bundler_with_deps.rb test/rackup/hello.ru",
+      no_wait: true
 
     load_path = []
-    while (line = @server.gets) =~ /^LOAD_PATH/
-      load_path << line.gsub(/^LOAD_PATH: /, '')
+    load_path << wait_for_server_to_match(/\ALOAD_PATH: (.+)/, 1)
+    while (line = @server.gets).start_with? 'LOAD_PATH: '
+      load_path << line.sub(/\ALOAD_PATH: /, '')
     end
     assert_match(%r{gems/minitest-[\d.]+/lib$}, load_path.last)
   end
 
   def test_load_path_does_not_include_nio4r
-    cli_server "-w #{workers} -C test/config/prune_bundler_with_deps.rb test/rackup/hello.ru"
+    cli_server "-w #{workers} -C test/config/prune_bundler_with_deps.rb test/rackup/hello.ru",
+      no_wait: true
 
     load_path = []
-    while (line = @server.gets) =~ /^LOAD_PATH/
-      load_path << line.gsub(/^LOAD_PATH: /, '')
+    load_path << wait_for_server_to_match(/\ALOAD_PATH: (.+)/, 1)
+    while (line = @server.gets).start_with? 'LOAD_PATH: '
+      load_path << line.sub(/\ALOAD_PATH: /, '')
     end
 
     load_path.each do |path|
@@ -459,6 +509,32 @@ class TestIntegrationCluster < TestIntegration
     File.unlink file1 if File.file? file1
   end
 
+  def test_worker_hook_warning_cli
+    cli_server "-w2 test/rackup/hello.ru", config: <<~CONFIG
+      on_worker_boot(:test) do |index, data|
+        data[:test] = index
+      end
+    CONFIG
+
+    get_worker_pids
+    line = @server_log[/.+on_worker_boot.+/]
+    refute line, "Warning below should not be shown!\n#{line}"
+  end
+
+  def test_worker_hook_warning_web_concurrency
+    cli_server "test/rackup/hello.ru",
+      env: { 'WEB_CONCURRENCY' => '2'},
+      config: <<~CONFIG
+      on_worker_boot(:test) do |index, data|
+        data[:test] = index
+      end
+    CONFIG
+
+    get_worker_pids
+    line = @server_log[/.+on_worker_boot.+/]
+    refute line, "Warning below should not be shown!\n#{line}"
+  end
+
   def test_puma_debug_loaded_exts
     cli_server "-w #{workers} test/rackup/hello.ru", puma_debug: true
 
@@ -473,9 +549,14 @@ class TestIntegrationCluster < TestIntegration
     cli_server "-w #{workers} -t 1:1 test/rackup/hello.ru", config: config
 
     pids = []
+    re = /Terminating timed out worker \(Worker \d+ #{details}\): (\d+)/
+
+    # below is messy code, for debugging
     Timeout.timeout(iterations * timeout + 1) do
-      (pids << @server.gets[/Terminating timed out worker \(#{details}\): (\d+)/, 1]).compact! while pids.size < workers * iterations
-      pids.map!(&:to_i)
+      while (pids.size < workers * iterations)
+        t = @server.gets
+        (idx = t[re, 1]&.to_i) and pids << idx
+      end
     end
 
     assert_equal pids, pids.uniq

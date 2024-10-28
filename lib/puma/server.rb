@@ -81,6 +81,8 @@ module Puma
         UserFileDefaultOptions.new(options, Configuration::DEFAULTS)
       end
 
+      @clustered                 = (@options.fetch :workers, 0) > 0
+      @worker_write              = @options[:worker_write]
       @log_writer                = @options.fetch :log_writer, LogWriter.stdio
       @early_hints               = @options[:early_hints]
       @first_data_timeout        = @options[:first_data_timeout]
@@ -117,6 +119,8 @@ module Puma
       @precheck_closing = true
 
       @requests_count = 0
+
+      @idle_timeout_reached = false
     end
 
     def inherit_binder(bind)
@@ -328,8 +332,24 @@ module Puma
           begin
             ios = IO.select sockets, nil, nil, (shutting_down? ? 0 : @idle_timeout)
             unless ios
-              @status = :stop unless shutting_down?
+              unless shutting_down?
+                @idle_timeout_reached = true
+
+                if @clustered
+                  @worker_write << "i#{Process.pid}\n" rescue nil
+                  next
+                else
+                  @log_writer.log "- Idle timeout reached"
+                  @status = :stop
+                end
+              end
+
               break
+            end
+
+            if @idle_timeout_reached && @clustered
+              @idle_timeout_reached = false
+              @worker_write << "i#{Process.pid}\n" rescue nil
             end
 
             ios.first.each do |sock|
@@ -367,6 +387,7 @@ module Puma
           @queue_requests = false
           @reactor.shutdown
         end
+
         graceful_shutdown if @status == :stop || @status == :restart
       rescue Exception => e
         @log_writer.unknown_error e, nil, "Exception handling servers"

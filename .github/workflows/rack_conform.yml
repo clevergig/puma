@@ -7,7 +7,7 @@ permissions:
 
 jobs:
   skip_duplicate_runs:
-    uses: ./.github/workflows/skip_duplicate_workflow_runs.yaml
+    uses: ./.github/workflows/skip_duplicate_workflow_runs.yml
 
   rack-conform:
     name: >-
@@ -23,7 +23,8 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-20.04 , ruby: '2.7' }
-          - { os: ubuntu-22.04 , ruby: '3.2' }
+          - { os: ubuntu-20.04 , ruby: '3.2' }
+          - { os: ubuntu-22.04 , ruby: '3.3' }
           - { os: ubuntu-22.04 , ruby: head  }
 
     env:
